@@ -113,31 +113,34 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
-   int A[2][2] = {
-        {1, 2},
-        {3, 4}
-    };
+  // task4
+  //  int A[2][2] = {
+  //       {1, 2},
+  //       {3, 4}
+  //   };
 
-    int B[2][2] = {
-        {5, 6},
-        {7, 8}
-    };
+  //   int B[2][2] = {
+  //       {5, 6},
+  //       {7, 8}
+  //   };
 
-    int C[2][2] = {0};
+  //   int C[2][2] = {0};
 
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            C[i][j] = 0;
-            for (int k = 0; k < 2; k++)
-            {
-                C[i][j] += A[i][k] * B[k][j];
-            }
-        }
-    }
+  //   for (int i = 0; i < 2; i++)
+  //   {
+  //       for (int j = 0; j < 2; j++)
+  //       {
+  //           C[i][j] = 0;
+  //           for (int k = 0; k < 2; k++)
+  //           {
+  //               C[i][j] += A[i][k] * B[k][j];
+  //           }
+  //       }
+  //   }
   
-  
+  //task 5
+   int num;
+    
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -145,35 +148,58 @@ int main(void)
   while (1)
   {
     /* USER CODE BEGIN 3 */
-    myPrintf("Matrix A:\r\n");
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            myPrintf("%d ", A[i][j]);
-        }
-        myPrintf("\r\n");
-    }
 
-    myPrintf("\r\nMatrix B:\r\n");
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            myPrintf("%d ", B[i][j]);
-        }
-        myPrintf("\r\n");
-    }
+    // task 04
+    // myPrintf("Matrix A:\r\n");
+    // for (int i = 0; i < 2; i++)
+    // {
+    //     for (int j = 0; j < 2; j++)
+    //     {
+    //         myPrintf("%d ", A[i][j]);
+    //     }
+    //     myPrintf("\r\n");
+    // }
 
-    myPrintf("\r\nMatrix C (A × B):\r\n");
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            myPrintf("%d ", C[i][j]);
+    // myPrintf("\r\nMatrix B:\r\n");
+    // for (int i = 0; i < 2; i++)
+    // {
+    //     for (int j = 0; j < 2; j++)
+    //     {
+    //         myPrintf("%d ", B[i][j]);
+    //     }
+    //     myPrintf("\r\n");
+    // }
+
+    // myPrintf("\r\nMatrix C (A × B):\r\n");
+    // for (int i = 0; i < 2; i++)
+    // {
+    //     for (int j = 0; j < 2; j++)
+    //     {
+    //         myPrintf("%d ", C[i][j]);
+    //     }
+    //     myPrintf("\r\n");
+    // }
+
+    // task 5
+    myPrintf("3-digit Armstrong numbers are:\r\n");
+    for (num = 100; num <= 999; num++) {
+        int hundreds = num / 100;         // X
+        int tens = (num / 10) % 10;       // Y
+        int units = num % 10;             // Z
+
+        // (b) Compute sum of cubes
+        int sum_cubes = hundreds*hundreds*hundreds
+                      + tens*tens*tens
+                      + units*units*units;
+
+        // Compare to original number
+        if (sum_cubes == num) {
+            // (c) Print Armstrong number
+            myPrintf("%d\r\n", num);
         }
-        myPrintf("\r\n");
-    }
+      }
+
+
 
     /* USER CODE END WHILE */
   }
