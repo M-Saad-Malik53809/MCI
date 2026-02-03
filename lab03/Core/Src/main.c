@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f3xx_hal.h"
+#include "stdlib.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -128,36 +129,45 @@ void Task_2(int *index)
     display_digit(arr[*index]);
 }
 
-void Task_3(int *index)
+void Task_3(int counter)
 {
-    // Static variables to store previous button states
-    static uint8_t last_button_state_dec = 0;
-    static uint8_t last_button_state_inc = 0;
+    uint8_t up_pressed = (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET);
+    uint8_t down_pressed = (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_SET);
 
-    // Read current button states
-    uint8_t current_button_state_dec = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1);
-    uint8_t current_button_state_inc = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
-    
-    // Detect **rising edge** for decrement button
-    if (current_button_state_dec == 1 && last_button_state_dec == 0)
-    {   HAL_Delay(50);
-        *index = (*index - 1 + 16) % 16;  // Decrement index once
-    }
-    // Detect **rising edge** for increment button
-    if (current_button_state_inc && !last_button_state_inc)
+    if (up_pressed || down_pressed)
     {
-      *index = ((*index + 1) % 16);  // Increment index once
+      if (up_pressed)
+        {
+          counter = (counter == 15) ? 0 : counter + 1;
+        }
+
+      if (down_pressed)
+        {
+          counter = (counter == 0) ? 15 : counter - 1;
+        }
+
+    display_digit(counter);
+
+    HAL_Delay(200); // debounce delay
+
+    // Wait until both buttons are released
+    while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET ||
+    HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_SET);
     }
-
-    // Update last button states
-    last_button_state_dec = current_button_state_dec;
-    last_button_state_inc = current_button_state_inc;
-
-    // Display the current digit
-    display_digit(*index);
 }
 
+void Task_4(void){
+  if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+    {
+      int dice_value = (rand() % 6) + 1; // generate a random number between 1 and 6
+      display_digit(dice_value);
 
+      HAL_Delay(200); // debounce delay
+
+      // wait until the button is released
+      while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET);
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -194,7 +204,7 @@ int main(void)
   MX_I2C1_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
-  int index =0;
+  // int counter =5;          For Task 3
 
   /* USER CODE END 2 */
 
@@ -205,7 +215,8 @@ int main(void)
     /* USER CODE END WHILE */
       // Task_1();
       // Task_2(&index);
-      Task_3(&index);
+      // Task_3(counter);
+      Task_4();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
