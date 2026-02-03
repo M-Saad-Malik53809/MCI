@@ -68,14 +68,39 @@ static void MX_USB_PCD_Init(void);
 //   HAL_TIM_Base_Stop(&htim2);
 // }
 /* USER CODE END PFP */
-void HAL_TIM_PeriodElapsedCallback ( TIM_HandleTypeDef *htim) {
-  if (htim -> Instance == TIM2) {
-    HAL_GPIO_TogglePin (GPIOE , GPIO_PIN_9 );
-    }
-  }
+
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+uint32_t countA = 0;
+uint32_t countB = 0;
+uint32_t countC = 0;
 
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+  if(htim->Instance == TIM2){
+  // Increment counters every 1 ms
+    countA++;
+    countB++;
+    countC++;
+
+  // LED1 (LD3) → 500 ms
+  if(countA >= 500){
+    HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9); // LD3
+    countA = 0;
+    }
+
+  // LED2 (LD4) → 200 ms
+  if(countB >= 200){
+    HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_8); // LD4
+    countB = 0;
+    }
+
+  // LED3 (LD5) → 100 ms
+  if(countC >= 100){
+    HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_11); // LD5
+    countC = 0;
+    }
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -121,7 +146,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    continue;
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -282,11 +307,11 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 47999;
+  htim2.Init.Prescaler = 47;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
