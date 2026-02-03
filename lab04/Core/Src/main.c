@@ -60,15 +60,19 @@ static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
-void delay_ms(uint32_t ms)
-{
-  __HAL_TIM_SetCounter(&htim2, 0);
-  HAL_TIM_Base_Start(&htim2);
-  while (__HAL_TIM_GET_COUNTER(&htim2) < ms){}
-  HAL_TIM_Base_Stop(&htim2);
-}
+// void delay_ms(uint32_t ms)
+// {
+//   __HAL_TIM_SetCounter(&htim2, 0);
+//   HAL_TIM_Base_Start(&htim2);
+//   while (__HAL_TIM_GET_COUNTER(&htim2) < ms){}
+//   HAL_TIM_Base_Stop(&htim2);
+// }
 /* USER CODE END PFP */
-
+void HAL_TIM_PeriodElapsedCallback ( TIM_HandleTypeDef *htim) {
+  if (htim -> Instance == TIM2) {
+    HAL_GPIO_TogglePin (GPIOE , GPIO_PIN_9 );
+    }
+  }
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
@@ -113,11 +117,11 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  HAL_TIM_Base_Start_IT (& htim2);
   while (1)
   {
     /* USER CODE END WHILE */
-    HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
-    delay_ms(1000);
+    continue;
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -280,7 +284,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 47999;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
