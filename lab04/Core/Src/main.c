@@ -85,15 +85,33 @@ void myPrintf (const char *fmt , ...){
       va_end (args);
       HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, HAL_MAX_DELAY);
   }
-uint32_t last_capture = 0, period = 0,freq=0;
-void HAL_TIM_IC_CaptureCallback ( TIM_HandleTypeDef *htim) {
-  if (htim -> Channel == HAL_TIM_ACTIVE_CHANNEL_1 ) {
-  uint32_t current_capture = HAL_TIM_ReadCapturedValue (htim ,  TIM_CHANNEL_1 );
-  period = current_capture - last_capture ;
-  last_capture = current_capture ;
-  if(period!=0) freq = 48000000/period;
+uint32_t capture1 = 0, capture2 = 0;
+uint32_t diff = 0, frequency = 0;
+uint8_t is_first_capture = 1;
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
+      if (is_first_capture) {
+        // Capture the first rising edge
+        capture1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+        is_first_capture = 0;
+      } else {
+        // Capture the second rising edge
+        capture2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+        // Handle 16-bit counter rollover
+      if (capture2 > capture1) {
+        diff = capture2 - capture1;
+      } else {
+        diff = (0xFFFF - capture1) + capture2;
+      }
+        // Calculate Frequency (Timer Clock = 1 MHz)
+      if (diff != 0) {
+        frequency = 1000000 / diff;
+      }
+        is_first_capture = 1; // Reset for next reading
+      }
+    }
   }
- }
+
 /* USER CODE END 0 */
 
 /**
@@ -142,7 +160,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    printf("Measured Frequency= %d Hz \r\n",freq);
+    myPrintf("Measured Frequency= %d Hz \r\n",frequency);
     HAL_Delay(500);
     /* USER CODE BEGIN 3 */
   }
