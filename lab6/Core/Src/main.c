@@ -178,9 +178,9 @@ HAL_TIM_Base_Start(&htim2);  // Put this in main(), after MX_TIM2_Init()
          48 MHz / (9+1) = 4.8 MHz
         */
 
-        float frequency = (8e6) / avg_period;
+        float frequency = (4.8e6) / avg_period;
 
-        float error = (8e6 / (avg_period - 1)) - frequency;
+        float error = (4.8e6 / (avg_period - 1)) - frequency;
 
         myPrintf("Frequency: %.2f Hz ± %.2f Hz\r\n",
                frequency, error);
