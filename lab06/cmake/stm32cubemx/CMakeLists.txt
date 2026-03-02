@@ -78,12 +78,12 @@ add_library(STM32_Drivers OBJECT)
 target_sources(STM32_Drivers PRIVATE ${STM32_Drivers_Src})
 target_link_libraries(STM32_Drivers PUBLIC stm32cubemx)
 
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float )
+
+
 
 # Add STM32CubeMX generated application sources to the project
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})
-
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float )
-
 
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE ${MX_LINK_DIRS})

@@ -57,6 +57,9 @@ PCD_HandleTypeDef hpcd_USB_FS;
    the full speed of motor is qcquired when input voltage is set to 12V */
 #define PPR 330.0f
 
+uint16_t g_icPeriodTicks = 0U;
+uint32_t g_icPeriodSeq = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -64,9 +67,9 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM2_Init(void);
 static void MX_USB_PCD_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 void Motor_A_Forward(void);
@@ -153,13 +156,13 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
+  MX_TIM2_Init();
   MX_USB_PCD_Init();
   MX_USART2_UART_Init();
-  MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_Base_Start(&htim3);
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
 
   Motor_A_Forward();
   Motor_A_SetSpeed(100);
@@ -170,24 +173,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    uint32_t ticks = 0U;
-
-      while (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_0) == GPIO_PIN_RESET);
-      while (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_0) == GPIO_PIN_SET);
-      uint16_t t1 = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
-
-      while (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_0) == GPIO_PIN_RESET);
-      while (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_0) == GPIO_PIN_SET);
-      uint16_t t2 = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
-
-      ticks = (uint16_t)(t2 - t1);
-  
-
-    if (ticks > 0U)
+    static uint32_t lastProcessedSeq = 0U;
+    if (g_icPeriodSeq != lastProcessedSeq)
     {
-      float freq = 1000000.0f / (float)ticks;
+      lastProcessedSeq = g_icPeriodSeq;
+      float freq = 1000000.0f / (float)g_icPeriodTicks;
       float rpm = (60.0f * freq) / PPR;
-      myPrintf("Ticks(avg): %lu | Freq: %.2f Hz | RPM: %.2f\r\n", ticks, freq, rpm);
+      myPrintf("Ticks(avg): %u | Freq: %.2f Hz | RPM: %.2f\r\n", (unsigned int)g_icPeriodTicks, freq, rpm);
     }
 
 
@@ -410,6 +402,7 @@ static void MX_TIM3_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
 
@@ -429,9 +422,21 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_IC_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -535,8 +540,10 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT2_Pin */
-  GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT2_Pin;
+  /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT1_Pin
+                           MEMS_INT2_Pin */
+  GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT1_Pin
+                          |MEMS_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
@@ -571,6 +578,24 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+  if ((htim->Instance == TIM3) && (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1))
+  {
+    static uint16_t previousCapture = 0U;
+    static uint8_t hasPreviousCapture = 0U;
+    uint16_t currentCapture = (uint16_t)HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+
+    if (hasPreviousCapture != 0U)
+    {
+      g_icPeriodTicks = (uint16_t)(currentCapture - previousCapture);
+      g_icPeriodSeq++;
+    }
+
+    previousCapture = currentCapture;
+    hasPreviousCapture = 1U;
+  }
+}
 /* USER CODE END 4 */
 
 /**
