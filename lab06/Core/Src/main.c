@@ -54,11 +54,8 @@ PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
 /* CHR-GM37-520 nominal output-shaft PPR is 330 (11 encoder pulses × 30:1 gearbox),
-   but our measured RPM was consistently lower than expected due to real-world timing
-   and polling effects. To keep the standard formula RPM = (60 * f) / PPR, we used an
-   effective calibrated PPR (257.14), which preserves the same correction previously
-   applied with the 77/330 scaling while still matching observed motor speed. */
-#define PPR 257.14f
+   the full speed of motor is qcquired when input voltage is set to 12V */
+#define PPR 330.0f
 
 /* USER CODE END PV */
 
