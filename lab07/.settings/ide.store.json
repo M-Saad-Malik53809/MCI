@@ -1,7 +1,7 @@
 {
-  "board": "STM32F3DISCOVERY",
-  "device": "STM32F303VCT6",
-  "core": "Cortex-M4",
+  "board": "STM32F0DISCOVERY",
+  "device": "STM32F051R8T6",
+  "core": "Cortex-M0",
   "order": 0,
   "toolchain": "GCC"
 }

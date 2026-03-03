@@ -18,8 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stdarg.h>
-#include <stdio.h>
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -32,6 +31,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ADC_MAX_VALUE 4095.0f
+#define ADC_VREF      3.3f
 
 /* USER CODE END PD */
 
@@ -52,7 +53,7 @@ UART_HandleTypeDef huart2;
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
-uint32_t adcValue = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,27 +70,51 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void myPrintf(const char *fmt, ...)
-{
-  char buffer[128];
-  va_list args;
-  va_start(args, fmt);
-  int len = vsnprintf(buffer, sizeof(buffer), fmt, args);
-  va_end(args);
-
-  if (len > 0)
-  {
-    HAL_UART_Transmit(&huart2, (uint8_t *)buffer, (uint16_t)len, HAL_MAX_DELAY);
+#include <stdarg.h>
+#include <stdio.h>
+void myPrintf (const char *fmt , ...){
+      char buffer[256];
+      va_list args;
+      va_start (args, fmt);
+      int len = vsnprintf (buffer, sizeof(buffer), fmt, args);
+      va_end (args);
+      HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
   }
-}
+
+uint32_t adcValue = 0;
+float adcVoltage = 0.0f;
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
   {
       if(hadc->Instance == ADC1)
       {
           adcValue = HAL_ADC_GetValue(hadc);
+      adcVoltage = ((float) adcValue * ADC_VREF) / ADC_MAX_VALUE;
       }
   }
+
+
+#include "arm_math.h"
+#define FILTER_LEN 10
+float32_t inputBuffer[FILTER_LEN];
+float32_t output;
+
+void apply_moving_average(float32_t new_sample) {
+
+// Store the input ADC value in the buffer:
+
+// Your logic here to increment the index and store new_sample (ADC output) in the buffer
+
+static uint32_t index = 0;
+inputBuffer[index] = new_sample;
+index = (index + 1) % FILTER_LEN;
+
+// Use the DSP function to calculate the moving average of buffer and store in output:
+
+arm_mean_f32(inputBuffer, FILTER_LEN, &output);
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -127,15 +152,18 @@ int main(void)
   MX_USB_PCD_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
   HAL_ADC_Start_IT(&hadc1);
+ 
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    myPrintf("ADC Value: %lu\r\n", adcValue);
-    HAL_Delay(200);
+    apply_moving_average(adcValue);
+    myPrintf("%lu,%lu \r\n",(int) adcValue,(int) output);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
