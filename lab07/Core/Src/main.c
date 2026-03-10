@@ -84,14 +84,21 @@ void myPrintf (const char *fmt , ...){
 uint32_t adcValue = 0;
 float adcVoltage = 0.0f;
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+static void ADC_ReadPolling(void)
+{
+  if (HAL_ADC_Start(&hadc1) != HAL_OK)
   {
-      if(hadc->Instance == ADC1)
-      {
-          adcValue = HAL_ADC_GetValue(hadc);
-      adcVoltage = ((float) adcValue * ADC_VREF) / ADC_MAX_VALUE;
-      }
+    return;
   }
+
+  if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+  {
+    adcValue = HAL_ADC_GetValue(&hadc1);
+    adcVoltage = ((float)adcValue * ADC_VREF) / ADC_MAX_VALUE;
+  }
+
+  (void)HAL_ADC_Stop(&hadc1);
+}
 
 
 #include "arm_math.h"
@@ -153,7 +160,6 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADC_Start_IT(&hadc1);
  
 
   /* USER CODE END 2 */
@@ -162,6 +168,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    ADC_ReadPolling();
     apply_moving_average(adcValue);
     myPrintf("%lu,%lu \r\n",(int) adcValue,(int) output);
     /* USER CODE END WHILE */
