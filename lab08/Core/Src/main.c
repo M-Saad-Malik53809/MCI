@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32f3xx_hal.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdarg.h>
@@ -50,7 +52,16 @@ UART_HandleTypeDef huart2;
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
+#define CTRL_REG1      0x20
+#define CTRL_REG1_VAL  0b10001111 // Power on, enable X, Y, Z axes
+#define OUT_TEMP       0x26
+#define READ_CMD       0x80
 
+uint8_t spi_tx_buf[2];
+uint8_t spi_rx_buf[2];
+volatile uint8_t temp_ready_flag = 0;
+int8_t temperature = 0;
+int8_t calibration_offset = 13;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,30 +77,11 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define CS_PIN GPIO_PIN_3
-#define CS_PORT GPIOE
-
-#define WHO_AM_I_REG 0x0F
-#define READ_CMD 0x80
-
-uint8_t txData;
-uint8_t rxData;
-
-uint8_t Gyro_ReadWHOAMI(void)
-{
-
-    uint8_t id;
-
-    txData = READ_CMD | WHO_AM_I_REG;   // 0x80 | 0x0F = 0x8F
-
-    HAL_GPIO_WritePin(CS_PORT, CS_PIN, GPIO_PIN_RESET); // CS LOW
-
-    HAL_SPI_Transmit(&hspi1, &txData, 1, HAL_MAX_DELAY);
-    HAL_SPI_Receive(&hspi1, &id, 1, HAL_MAX_DELAY);
-
-    HAL_GPIO_WritePin(CS_PORT, CS_PIN, GPIO_PIN_SET);   // CS HIGH
-
-    return id;
+void gyro_init(void) {
+    uint8_t tx[2] = {CTRL_REG1, CTRL_REG1_VAL};
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); // CS LOW
+    HAL_SPI_Transmit(&hspi1, tx, 2, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);   // CS HIGH
 }
 
 void myPrintf (const char *fmt , ...){
@@ -136,17 +128,36 @@ int main(void)
   MX_USB_PCD_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  uint8_t gyro_id;  
+  gyro_init(); // Wake up the sensor
+  
+  // Set up the first reading
+  spi_tx_buf[0] = READ_CMD | OUT_TEMP; 
+  spi_tx_buf[1] = 0x00;                
+
+  // Trigger the very first SPI reading before the main loop starts
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); 
+  HAL_SPI_TransmitReceive_IT(&hspi1, spi_tx_buf, spi_rx_buf, 2);  /* USER CODE END 2 */
   /* USER CODE END 2 */
 
-  /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    if (temp_ready_flag == 1) 
+    {
+        temp_ready_flag = 0; // Clear the flag immediately
+
+        // 2. Process and transmit the data via UART
+        myPrintf("%d\r\n", temperature+calibration_offset); 
+
+        // 3. Wait for the required interval (e.g., 150ms)
+        HAL_Delay(200); 
+
+        // 4. Trigger the next SPI reading
+        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); 
+        HAL_SPI_TransmitReceive_IT(&hspi1, spi_tx_buf, spi_rx_buf, 2);
+
+    }
     /* USER CODE END WHILE */
-    gyro_id = Gyro_ReadWHOAMI();
-    myPrintf("WHO_AM_I = 0x%X\r\n", gyro_id);
-    HAL_Delay(200);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -411,7 +422,16 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
+    if (hspi->Instance == SPI1) {
+        // Set CS HIGH immediately after communication finishes
+        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET); 
+        
+        // The temperature is received in the second byte (rx_buf[1])
+        temperature = (int8_t)spi_rx_buf[1]; 
+        temp_ready_flag = 1;
+    }
+}
 /* USER CODE END 4 */
 
 /**
