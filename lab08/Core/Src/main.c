@@ -52,16 +52,15 @@ UART_HandleTypeDef huart2;
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
-#define CTRL_REG1      0x20
-#define CTRL_REG1_VAL  0b10001111 // Power on, enable X, Y, Z axes
-#define OUT_TEMP       0x26
-#define READ_CMD       0x80
+/* USER CODE BEGIN PV */
+uint8_t spi_tx_buf[9]; // 1 command byte + 8 dummy bytes
+uint8_t spi_rx_buf[9]; // 1 dummy byte + 8 data bytes
+volatile uint8_t gyro_ready_flag = 0;
 
-uint8_t spi_tx_buf[2];
-uint8_t spi_rx_buf[2];
-volatile uint8_t temp_ready_flag = 0;
-int8_t temperature = 0;
-int8_t calibration_offset = 13;
+// Variables to hold the final converted data
+int8_t actual_temp = 0;
+float x_dps = 0, y_dps = 0, z_dps = 0;
+/* USER CODE END PV */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,11 +76,12 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 void gyro_init(void) {
-    uint8_t tx[2] = {CTRL_REG1, CTRL_REG1_VAL};
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); // CS LOW
+    uint8_t tx[2] = {0x20, 0b10001111}; // CTRL_REG1
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
     HAL_SPI_Transmit(&hspi1, tx, 2, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);   // CS HIGH
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
 }
 
 void myPrintf (const char *fmt , ...){
@@ -129,34 +129,34 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   gyro_init(); // Wake up the sensor
-  
-  // Set up the first reading
-  spi_tx_buf[0] = READ_CMD | OUT_TEMP; 
-  spi_tx_buf[1] = 0x00;                
+  // Prepare the transmission buffer for a Multiple Read
+  spi_tx_buf[0] = 0x80 | 0x40 | 0x26; // Read + Increment starting at 0x26
+  for(int i = 1; i < 9; i++) {
+      spi_tx_buf[i] = 0x00; // Dummy bytes to generate the clock
+  }
 
-  // Trigger the very first SPI reading before the main loop starts
+  // Trigger the very first background SPI reading
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); 
-  HAL_SPI_TransmitReceive_IT(&hspi1, spi_tx_buf, spi_rx_buf, 2);  /* USER CODE END 2 */
+  HAL_SPI_TransmitReceive_IT(&hspi1, spi_tx_buf, spi_rx_buf, 9);  /* USER CODE END 2 */
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if (temp_ready_flag == 1) 
-    {
-        temp_ready_flag = 0; // Clear the flag immediately
+    if (gyro_ready_flag == 1) 
+      {
+          gyro_ready_flag = 0; // Clear the flag immediately
 
-        // 2. Process and transmit the data via UART
-        myPrintf("%d\r\n", temperature+calibration_offset); 
+          // 1. Format and transmit the calculated values via UART
+          myPrintf("%d, %.2f, %.2f, %.2f\r\n", actual_temp, x_dps, y_dps, z_dps);
 
-        // 3. Wait for the required interval (e.g., 150ms)
-        HAL_Delay(200); 
+          // 2. Wait 100 ms (10 Hz transmission rate)
+          HAL_Delay(100); 
 
-        // 4. Trigger the next SPI reading
-        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); 
-        HAL_SPI_TransmitReceive_IT(&hspi1, spi_tx_buf, spi_rx_buf, 2);
-
-    }
+          // 3. Trigger the next 9-byte SPI reading in the background
+          HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET); 
+          HAL_SPI_TransmitReceive_IT(&hspi1, spi_tx_buf, spi_rx_buf, 9);
+      }
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
   }
@@ -422,16 +422,41 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* USER CODE BEGIN 4 */
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
     if (hspi->Instance == SPI1) {
-        // Set CS HIGH immediately after communication finishes
+        // 1. Pull CS HIGH to end communication
         HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET); 
         
-        // The temperature is received in the second byte (rx_buf[1])
-        temperature = (int8_t)spi_rx_buf[1]; 
-        temp_ready_flag = 1;
+        // Data mapping in spi_rx_buf:
+        // [0] Garbage received during command transmission
+        // [1] 0x26 (OUT_TEMP)
+        // [2] 0x27 (STATUS_REG) - Ignored
+        // [3] 0x28 (OUT_X_L)
+        // [4] 0x29 (OUT_X_H)
+        // [5] 0x2A (OUT_Y_L)
+        // [6] 0x2B (OUT_Y_H)
+        // [7] 0x2C (OUT_Z_L)
+        // [8] 0x2D (OUT_Z_H)
+        
+        // 2. Extract and calibrate Temperature
+        actual_temp = (int8_t)spi_rx_buf[1] + 12; // +12 calibration offset
+        
+        // 3. Extract and combine X, Y, Z raw values (Little-Endian)
+        int16_t x_raw = (int16_t)((spi_rx_buf[4] << 8) | spi_rx_buf[3]); 
+        int16_t y_raw = (int16_t)((spi_rx_buf[6] << 8) | spi_rx_buf[5]); 
+        int16_t z_raw = (int16_t)((spi_rx_buf[8] << 8) | spi_rx_buf[7]); 
+        
+        // 4. Convert to degrees per second
+        x_dps = x_raw * 0.00875f;
+        y_dps = y_raw * 0.00875f;
+        z_dps = z_raw * 0.00875f;
+        
+        // 5. Signal the main loop that calculations are done
+        gyro_ready_flag = 1;
     }
 }
+/* USER CODE END 4 */
 /* USER CODE END 4 */
 
 /**
