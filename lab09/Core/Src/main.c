@@ -158,10 +158,10 @@ void Read_LSM(LSM303AGR_Data *data) {
     // Read high and low bytes for X, Y, Z
     HAL_I2C_Mem_Read(&hi2c1, LSM303AGR_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, raw_data, 6, HAL_MAX_DELAY);
     
-    // Combine high and low bytes into signed 16-bit integers (LOW byte first, HIGH byte second)
-    data->raw_x = (int16_t)((raw_data[1] << 8) | raw_data[0]);
-    data->raw_y = (int16_t)((raw_data[3] << 8) | raw_data[2]);
-    data->raw_z = (int16_t)((raw_data[5] << 8) | raw_data[4]);
+    // In normal mode (10-bit), output is left-aligned in 16-bit registers, so shift by 6.
+    data->raw_x = ((int16_t)((raw_data[1] << 8) | raw_data[0])) >> 6;
+    data->raw_y = ((int16_t)((raw_data[3] << 8) | raw_data[2])) >> 6;
+    data->raw_z = ((int16_t)((raw_data[5] << 8) | raw_data[4])) >> 6;
     
     // Scale to physical units (g) - multiply by 0.0039 (3.9 mg/LSB sensitivity)
     data->scaled_x = (data->raw_x * 0.0039f)-data->offset_x;
@@ -195,9 +195,9 @@ void Offset_LSM(LSM303AGR_Data *data) {
         // Bit 7 is set (0x80) to automatically increment the register address.
         HAL_I2C_Mem_Read(&hi2c1, LSM303AGR_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, raw_data, 6, HAL_MAX_DELAY);
         
-        sum_x += (int16_t)((raw_data[1] << 8) | raw_data[0]);
-        sum_y += (int16_t)((raw_data[3] << 8) | raw_data[2]);
-        sum_z += (int16_t)((raw_data[5] << 8) | raw_data[4]);
+        sum_x += ((int16_t)((raw_data[1] << 8) | raw_data[0])) >> 6;
+        sum_y += ((int16_t)((raw_data[3] << 8) | raw_data[2])) >> 6;
+        sum_z += ((int16_t)((raw_data[5] << 8) | raw_data[4])) >> 6;
         HAL_Delay(10);
     }
     
@@ -229,7 +229,7 @@ void Offset_Sensor(Gyro_Data *data) {
 
   void Print_LSM(const LSM303AGR_Data *acc, const Gyro_Data *gyro)
   {
-    float angle_x_deg = atanf(acc->scaled_x) * RAD_TO_DEG;
+    float angle_x_deg = acc->scaled_x * RAD_TO_DEG;
 
     myPrintf("%.3f,%.3f,%.3f\r\n",
          acc->scaled_x, gyro->scaled_x, angle_x_deg);
