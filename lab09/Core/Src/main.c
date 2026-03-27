@@ -18,11 +18,16 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32f303xc.h"
+#include "stm32f3xx_hal.h"
+#include "stm32f3xx_hal_gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 
 
 /* USER CODE END Includes */
@@ -52,9 +57,30 @@ UART_HandleTypeDef huart2;
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
-#define LSM303_ACC_I2C_ADDR 0x33
-#define LSM303_WHO_AM_I_REG 0x0F
-uint8_t data;
+#define LSM303AGR_ADDR 0x32
+#define RAD_TO_DEG 57.2958f
+#define GYRO_WHO_AM_I_REG 0x0F
+#define GYRO_CTRL_REG1    0x20
+#define GYRO_CTRL_REG4    0x23
+#define GYRO_OUT_X_L      0x28
+#define GYRO_SPI_READ     0x80
+#define GYRO_SPI_MULTI    0x40
+
+typedef struct {
+    int16_t raw_x, raw_y, raw_z;
+    float scaled_x, scaled_y, scaled_z;
+  float offset_x, offset_y, offset_z;
+} LSM303AGR_Data;
+
+typedef struct {
+    int16_t raw_x, raw_y, raw_z;
+    float scaled_x, scaled_y, scaled_z;
+    float offset_x, offset_y, offset_z;
+} Gyro_Data;
+
+LSM303AGR_Data acc_data = {0};
+Gyro_Data gyro_data = {0};
+uint8_t gyro_whoami = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,6 +96,145 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void myPrintf (const char *fmt , ...);
+void Print_LSM(const LSM303AGR_Data *acc, const Gyro_Data *gyro);
+
+static uint8_t Gyro_SPI_ReadReg(uint8_t reg)
+{
+  uint8_t tx[2] = {(uint8_t)(GYRO_SPI_READ | (reg & 0x3F)), 0x00};
+  uint8_t rx[2] = {0};
+
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+  HAL_SPI_TransmitReceive(&hspi1, tx, rx, 2, HAL_MAX_DELAY);
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_SET);
+
+  return rx[1];
+}
+
+static void Gyro_SPI_WriteReg(uint8_t reg, uint8_t value)
+{
+  uint8_t tx[2] = {(uint8_t)(reg & 0x3F), value};
+
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+  HAL_SPI_Transmit(&hspi1, tx, 2, HAL_MAX_DELAY);
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_SET);
+}
+
+static void Gyro_SPI_ReadMulti(uint8_t startReg, uint8_t *buffer, uint16_t len)
+{
+  uint8_t cmd = (uint8_t)(GYRO_SPI_READ | GYRO_SPI_MULTI | (startReg & 0x3F));
+
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+  HAL_SPI_Transmit(&hspi1, &cmd, 1, HAL_MAX_DELAY);
+  HAL_SPI_Receive(&hspi1, buffer, len, HAL_MAX_DELAY);
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_SET);
+}
+
+void Init_LSM(void) {
+    // Initialize LSM303AGR accelerometer
+    uint8_t ctrl_reg1 = 0x67;
+    uint8_t ctrl_reg4 = 0x00;
+    HAL_I2C_Mem_Write(&hi2c1, LSM303AGR_ADDR, 0x20, I2C_MEMADD_SIZE_8BIT, &ctrl_reg1, 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&hi2c1, LSM303AGR_ADDR, 0x23, I2C_MEMADD_SIZE_8BIT, &ctrl_reg4, 1, HAL_MAX_DELAY);
+}
+
+void Init_Sensor(void) {
+
+  uint8_t ctrl_reg1 = 0x0F; // normal mode, XYZ enabled
+  uint8_t ctrl_reg4 = 0x80; // BDU enabled, +/- 250 dps
+
+  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_SET);
+  HAL_Delay(5);
+
+  Gyro_SPI_WriteReg(GYRO_CTRL_REG1, ctrl_reg1);
+  Gyro_SPI_WriteReg(GYRO_CTRL_REG4, ctrl_reg4);
+
+  gyro_whoami = Gyro_SPI_ReadReg(GYRO_WHO_AM_I_REG);
+  myPrintf("GYRO WHO_AM_I (SPI): 0x%02X\r\n", gyro_whoami);
+}
+void Read_LSM(LSM303AGR_Data *data) {
+    uint8_t raw_data[6];
+    
+    // Read high and low bytes for X, Y, Z
+    HAL_I2C_Mem_Read(&hi2c1, LSM303AGR_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, raw_data, 6, HAL_MAX_DELAY);
+    
+    // Combine high and low bytes into signed 16-bit integers (LOW byte first, HIGH byte second)
+    data->raw_x = (int16_t)((raw_data[1] << 8) | raw_data[0]);
+    data->raw_y = (int16_t)((raw_data[3] << 8) | raw_data[2]);
+    data->raw_z = (int16_t)((raw_data[5] << 8) | raw_data[4]);
+    
+    // Scale to physical units (g) - multiply by 0.0039 (3.9 mg/LSB sensitivity)
+    data->scaled_x = (data->raw_x * 0.0039f)-data->offset_x;
+    data->scaled_y = (data->raw_y * 0.0039f)-data->offset_y;
+    data->scaled_z = (data->raw_z * 0.0039f)-data->offset_z;
+    
+}
+
+void Read_Sensor(Gyro_Data *data) {
+    uint8_t raw_data[6];
+
+  Gyro_SPI_ReadMulti(GYRO_OUT_X_L, raw_data, 6);
+    
+    // OUT_* order is LOW then HIGH byte.
+    data->raw_x = (int16_t)((raw_data[1] << 8) | raw_data[0]);
+    data->raw_y = (int16_t)((raw_data[3] << 8) | raw_data[2]);
+    data->raw_z = (int16_t)((raw_data[5] << 8) | raw_data[4]);
+    
+    // Scale to angular velocity (deg/s) - I3G4250D at 250 dps: 8.75 mdps/LSB
+    data->scaled_x = data->raw_x *0.00875 - data->offset_x;
+    data->scaled_y = data->raw_y *0.00875 - data->offset_y;
+    data->scaled_z = data->raw_z *0.00875 - data->offset_z;
+    
+}
+void Offset_LSM(LSM303AGR_Data *data) {
+  int32_t sum_x = 0, sum_y = 0, sum_z = 0;
+    uint8_t raw_data[6];
+    
+    for(int i = 0; i < 20; i++) {
+        // Read 6 bytes starting from OUT_X_L_A (0x28). 
+        // Bit 7 is set (0x80) to automatically increment the register address.
+        HAL_I2C_Mem_Read(&hi2c1, LSM303AGR_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, raw_data, 6, HAL_MAX_DELAY);
+        
+        sum_x += (int16_t)((raw_data[1] << 8) | raw_data[0]);
+        sum_y += (int16_t)((raw_data[3] << 8) | raw_data[2]);
+        sum_z += (int16_t)((raw_data[5] << 8) | raw_data[4]);
+        HAL_Delay(10);
+    }
+    
+    // Calculate average and convert to g units (3.9 mg/LSB)
+    data->offset_x = (sum_x / 20.0f) * 0.0039f;
+    data->offset_y = (sum_y / 20.0f) * 0.0039f;
+    data->offset_z = (sum_z / 20.0f) * 0.0039f;
+}
+
+void Offset_Sensor(Gyro_Data *data) {
+    int32_t sum_x = 0, sum_y = 0, sum_z = 0;
+    uint8_t raw_data[6];
+    
+    
+    for(int i = 0; i < 20; i++) {
+      Gyro_SPI_ReadMulti(GYRO_OUT_X_L, raw_data, 6);
+        
+        sum_x += (int16_t)((raw_data[1] << 8) | raw_data[0]);
+        sum_y += (int16_t)((raw_data[3] << 8) | raw_data[2]);
+        sum_z += (int16_t)((raw_data[5] << 8) | raw_data[4]);
+        HAL_Delay(10);
+    }
+    
+    // Calculate average offsets in deg/s
+    data->offset_x = (sum_x / 20.0f) * 0.00875;
+    data->offset_y = (sum_y / 20.0f) * 0.00875;
+    data->offset_z = (sum_z / 20.0f) * 0.00875;
+}
+
+  void Print_LSM(const LSM303AGR_Data *acc, const Gyro_Data *gyro)
+  {
+    float angle_x_deg = atanf(acc->scaled_x) * RAD_TO_DEG;
+
+    myPrintf("%.3f,%.3f,%.3f\r\n",
+         acc->scaled_x, gyro->scaled_x, angle_x_deg);
+  }
+
 void myPrintf (const char *fmt , ...){
       char buffer[256];
       va_list args;
@@ -78,6 +243,7 @@ void myPrintf (const char *fmt , ...){
       va_end (args);
       HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
   }
+
 /* USER CODE END 0 */
 
 /**
@@ -115,16 +281,24 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_I2C_Init(&hi2c1);
+  Init_LSM();
+  Init_Sensor();
+  HAL_Delay(200);
+  
+  // Calibrate sensors (call only once at startup)
+  Offset_LSM(&acc_data);
+  Offset_Sensor(&gyro_data);
+  HAL_Delay(100);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    HAL_I2C_Mem_Read(&hi2c1,LSM303_ACC_I2C_ADDR,LSM303_WHO_AM_I_REG,I2C_MEMADD_SIZE_8BIT,&data,1,100);
-    myPrintf("WHO AM I: 0x%02X\r\n", data);
-
-    HAL_Delay(200);
+    Read_LSM(&acc_data);
+    Read_Sensor(&gyro_data);
+    Print_LSM(&acc_data, &gyro_data);
+    HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -249,9 +423,9 @@ static void MX_SPI1_Init(void)
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_MASTER;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_4BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
   hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
