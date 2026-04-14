@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Keystudio Car Shield V3 Wiring Map</title>
+  <style>
+    :root {
+      --bg: #f3f0e8;
+      --panel: #fffdf8;
+      --ink: #1f1a15;
+      --accent: #0b6e4f;
+      --warn: #b42318;
+      --line: #d8d1c6;
+      --right: #1155cc;
+      --left: #cc5500;
+      --enc: #5e2ca5;
+      --pwm: #0a7f3f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top right, #fff4d6 0, var(--bg) 45%);
+      line-height: 1.45;
+    }
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 8px;
+      text-align: left;
+    }
+    th { background: #f9f5ed; }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      color: #fff;
+    }
+    .right { background: var(--right); }
+    .left { background: var(--left); }
+    .enc { background: var(--enc); }
+    .pwm { background: var(--pwm); }
+    .pinmap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .board {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      background: #ffffff;
+    }
+    .board h3 { margin: 0 0 8px; font-size: 16px; }
+    .pin {
+      display: flex;
+      justify-content: space-between;
+      border: 1px solid #e9e1d4;
+      border-radius: 8px;
+      padding: 7px 10px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .diagram-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 10px;
+    }
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .swatch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border: 1px solid #dfd6c8;
+      border-radius: 999px;
+      background: #fff;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-r { background: var(--right); }
+    .dot-l { background: var(--left); }
+    .dot-e { background: var(--enc); }
+    .dot-p { background: var(--pwm); }
+    code {
+      background: #f4eee4;
+      border: 1px solid #e7ddcf;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    @media (max-width: 860px) {
+      .grid, .pinmap { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Keystudio Car Shield V3 Pin Wiring</h1>
+    <p>Reference wiring for the current firmware pin map in this project.</p>
+
+    <div class="card">
+      <h2>Direct Shield to STM32 Mapping</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Shield Pin</th>
+            <th>Function</th>
+            <th>STM32 Pin</th>
+            <th>Timer/Channel</th>
+            <th>Tag</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>D8</td>
+            <td>Right motor IN1</td>
+            <td>PC0</td>
+            <td>GPIO</td>
+            <td><span class="pill right">Right Dir</span></td>
+          </tr>
+          <tr>
+            <td>D12</td>
+            <td>Right motor IN2</td>
+            <td>PD0</td>
+            <td>GPIO</td>
+            <td><span class="pill right">Right Dir</span></td>
+          </tr>
+          <tr>
+            <td>D10 / PWM</td>
+            <td>Right motor speed</td>
+            <td>PF9</td>
+            <td>TIM15_CH1</td>
+            <td><span class="pill pwm">PWM</span></td>
+          </tr>
+          <tr>
+            <td>D7</td>
+            <td>Left motor IN1</td>
+            <td>PC1</td>
+            <td>GPIO</td>
+            <td><span class="pill left">Left Dir</span></td>
+          </tr>
+          <tr>
+            <td>D6</td>
+            <td>Left motor IN2</td>
+            <td>PD1</td>
+            <td>GPIO</td>
+            <td><span class="pill left">Left Dir</span></td>
+          </tr>
+          <tr>
+            <td>D9 / PWM</td>
+            <td>Left motor speed</td>
+            <td>PF10</td>
+            <td>TIM15_CH2</td>
+            <td><span class="pill pwm">PWM</span></td>
+          </tr>
+          <tr>
+            <td>D4</td>
+            <td>Right encoder phase A</td>
+            <td>PC6</td>
+            <td>TIM3_CH1</td>
+            <td><span class="pill enc">Encoder A</span></td>
+          </tr>
+          <tr>
+            <td>D3</td>
+            <td>Right encoder phase B</td>
+            <td>PC7</td>
+            <td>TIM3_CH2</td>
+            <td><span class="pill enc">Encoder B</span></td>
+          </tr>
+          <tr>
+            <td>D5</td>
+            <td>Left encoder phase A</td>
+            <td>PD12</td>
+            <td>TIM4_CH1</td>
+            <td><span class="pill enc">Encoder A</span></td>
+          </tr>
+          <tr>
+            <td>D2</td>
+            <td>Left encoder phase B</td>
+            <td>PD13</td>
+            <td>TIM4_CH2</td>
+            <td><span class="pill enc">Encoder B</span></td>
+          </tr>
+          <tr>
+            <td>5V</td>
+            <td>Encoder supply</td>
+            <td>5V</td>
+            <td>Power</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>GND</td>
+            <td>Common ground</td>
+            <td>GND</td>
+            <td>Power</td>
+            <td>-</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <div class="card pinmap">
+      <div class="board">
+        <h3>Shield Side (Keystudio V3)</h3>
+        <div class="pin"><span>D8</span><span>Right IN1</span></div>
+        <div class="pin"><span>D12</span><span>Right IN2</span></div>
+        <div class="pin"><span>D10</span><span>Right PWM</span></div>
+        <div class="pin"><span>D7</span><span>Left IN1</span></div>
+        <div class="pin"><span>D6</span><span>Left IN2</span></div>
+        <div class="pin"><span>D9</span><span>Left PWM</span></div>
+        <div class="pin"><span>D4</span><span>Right Encoder A</span></div>
+        <div class="pin"><span>D3</span><span>Right Encoder B</span></div>
+        <div class="pin"><span>D5</span><span>Left Encoder A</span></div>
+        <div class="pin"><span>D2</span><span>Left Encoder B</span></div>
+      </div>
+      <div class="board">
+        <h3>STM32 Side (Current Project Mapping)</h3>
+        <div class="pin"><span>PC0</span><span>Right IN1</span></div>
+        <div class="pin"><span>PD0</span><span>Right IN2</span></div>
+        <div class="pin"><span>PF9</span><span>TIM15_CH1 PWM</span></div>
+        <div class="pin"><span>PC1</span><span>Left IN1</span></div>
+        <div class="pin"><span>PD1</span><span>Left IN2</span></div>
+        <div class="pin"><span>PF10</span><span>TIM15_CH2 PWM</span></div>
+        <div class="pin"><span>PC6</span><span>TIM3_CH1 Right Encoder A</span></div>
+        <div class="pin"><span>PC7</span><span>TIM3_CH2 Right Encoder B</span></div>
+        <div class="pin"><span>PD12</span><span>TIM4_CH1 Left Encoder A</span></div>
+        <div class="pin"><span>PD13</span><span>TIM4_CH2 Left Encoder B</span></div>
+      </div>
+    </div>
+
+
+    <div class="card grid">
+      <div>
+        <h2>Motor Direction Truth Table</h2>
+        <table>
+          <thead><tr><th>IN1</th><th>IN2</th><th>Motor</th></tr></thead>
+          <tbody>
+            <tr><td>HIGH</td><td>LOW</td><td>Forward</td></tr>
+            <tr><td>LOW</td><td>HIGH</td><td>Reverse</td></tr>
+            <tr><td>HIGH</td><td>HIGH</td><td>Stop</td></tr>
+            <tr><td>LOW</td><td>LOW</td><td>Stop</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h2>Control Defaults in Project</h2>
+        <ul>
+          <li>Motor encoder PPR: <code>330</code></li>
+          <li>PWM target: <code>20 kHz</code></li>
+          <li>Speed PID loop: <code>100 Hz</code></li>
+          <li>Balance loop target: <code>200 Hz</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

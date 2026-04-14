@@ -49,6 +49,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -117,6 +119,37 @@ void Error_Handler(void);
 #define MEMS_INT2_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
+
+// Motor shield mapping used in this project.
+// Right motor direction: D8/D12, PWM: D10
+// Left motor direction: D7/D6,  PWM: D9
+#define RIGHT_MOTOR_IN1_Pin        GPIO_PIN_0   // Shield D8
+#define RIGHT_MOTOR_IN1_GPIO_Port  GPIOC
+#define RIGHT_MOTOR_IN2_Pin        GPIO_PIN_0   // Shield D12
+#define RIGHT_MOTOR_IN2_GPIO_Port  GPIOD
+
+#define LEFT_MOTOR_IN1_Pin         GPIO_PIN_1   // Shield D7
+#define LEFT_MOTOR_IN1_GPIO_Port   GPIOC
+#define LEFT_MOTOR_IN2_Pin         GPIO_PIN_1   // Shield D6
+#define LEFT_MOTOR_IN2_GPIO_Port   GPIOD
+
+#define RIGHT_MOTOR_PWM_Pin        GPIO_PIN_9   // Shield D10, TIM15_CH1
+#define RIGHT_MOTOR_PWM_GPIO_Port  GPIOF
+#define LEFT_MOTOR_PWM_Pin         GPIO_PIN_10  // Shield D9, TIM15_CH2
+#define LEFT_MOTOR_PWM_GPIO_Port   GPIOF
+
+// Quadrature encoder mapping.
+// Right wheel: D4 (phase A) + D3 (phase B)
+// Left wheel:  D5 (phase A) + D2 (phase B)
+#define RIGHT_ENCODER_A_Pin        GPIO_PIN_6   // Shield D4, TIM3_CH1 on PC6
+#define RIGHT_ENCODER_A_GPIO_Port  GPIOC
+#define RIGHT_ENCODER_B_Pin        GPIO_PIN_7   // Shield D3, TIM3_CH2 on PC7
+#define RIGHT_ENCODER_B_GPIO_Port  GPIOC
+
+#define LEFT_ENCODER_A_Pin         GPIO_PIN_12  // Shield D5, TIM4_CH1 on PD12
+#define LEFT_ENCODER_A_GPIO_Port   GPIOD
+#define LEFT_ENCODER_B_Pin         GPIO_PIN_13  // Shield D2, TIM4_CH2 on PD13
+#define LEFT_ENCODER_B_GPIO_Port   GPIOD
 
 /* USER CODE END Private defines */
 

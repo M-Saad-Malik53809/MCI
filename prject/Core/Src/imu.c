@@ -157,7 +157,7 @@ struct imu_output IMU_UpdateAngle(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi
     float acc_x  = IMU_GetAccAngleX(hi2c);
 
     // Complementary filter: favour gyro short-term, acc long-term
-    tilt_angle = 0.98f * (tilt_angle + gyro_x * DT) + 0.02f * acc_x;
+    tilt_angle = CF_ALPHA * (tilt_angle + gyro_x * DT) + (1.0f - CF_ALPHA) * acc_x;
     struct imu_output output = { tilt_angle, gyro_x, acc_x };
     return output;
 }

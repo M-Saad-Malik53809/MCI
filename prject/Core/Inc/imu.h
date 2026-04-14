@@ -32,6 +32,7 @@ struct imu_output {
 
 //Complementary filter
 #define DT 0.01f         // 100 Hz → 10 ms
+#define CF_ALPHA 0.985f  // 1.5% accelerometer, 98.5% gyro integration
 
 void IMU_Init(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c);
 void IMU_OffsetCalibrate(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c);
