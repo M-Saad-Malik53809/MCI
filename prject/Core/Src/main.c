@@ -38,12 +38,12 @@
 /* USER CODE BEGIN PD */
 #define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
 #define BALANCE_SETPOINT_DEG      0.0f
-#define BALANCE_PID_KP            65.0f
-#define BALANCE_PID_KI            0.54f
-#define BALANCE_PID_KD            6.54f
-#define BALANCE_CMD_LIMIT_PERCENT  60.0f
-#define BALANCE_FALL_LIMIT_DEG     35.0f
-#define MOTOR_DEADBAND_PERCENT     4.0f
+#define BALANCE_PID_KP            10.0f  //15.0f working values
+#define BALANCE_PID_KI            0.3f  //0.3f working values
+#define BALANCE_PID_KD            0.4f  //0.7f working values
+#define BALANCE_CMD_LIMIT_PERCENT  100.0f
+#define BALANCE_FALL_LIMIT_DEG     45.0f
+#define MOTOR_DEADBAND_PERCENT     2.0f
 
 /* USER CODE END PD */
 
@@ -305,21 +305,11 @@ int main(void)
                                            output.tilt_angle,
                                            DT);
 
-        Motor_Left_ApplyCommand(balance_command);
-        Motor_Right_ApplyCommand(balance_command);
+        Motor_Left_ApplyCommand(-balance_command);
+        Motor_Right_ApplyCommand(-balance_command);
       }
 
-      telemetry_counter++;
-      if (telemetry_counter >= TELEMETRY_DIVIDER)
-      {
-        telemetry_counter = 0;
-        myPrintf("%.2f,%.2f,%.2f,%d,%d\r\n",
-                 output.tilt_angle,
-                 output.gyro_x,
-                 output.acc_x,
-                 (int)right_encoder_delta,
-                 (int)left_encoder_delta);
-      }
+     
     }
     /* USER CODE END WHILE */
 

@@ -24,6 +24,11 @@
 #define ACC_SENSITIVITY  3.9f          // mg/LSB in normal mode -> divide by 1000 for g
 #define RAD_TO_DEG       57.2958f
 
+// Bounded peripheral timeouts (ms) to avoid blocking the control loop.
+#define IMU_SPI_TIMEOUT_MS   2U
+#define IMU_I2C_TIMEOUT_MS   2U
+#define IMU_INIT_TIMEOUT_MS 20U
+
 struct imu_output {
    float tilt_angle;
    float gyro_x;
@@ -36,7 +41,7 @@ struct imu_output {
 
 void IMU_Init(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c);
 void IMU_OffsetCalibrate(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c);
-float IMU_GetGyroX(SPI_HandleTypeDef *hspi);
+float IMU_GetGyroY(SPI_HandleTypeDef *hspi);
 float IMU_GetAccAngleX(I2C_HandleTypeDef *hi2c);
 struct imu_output IMU_UpdateAngle(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c);
 
