@@ -153,12 +153,12 @@ void IMU_OffsetCalibrate(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c)
 // Complementary filter update (call inside timer ISR at 100 Hz)
 struct imu_output IMU_UpdateAngle(SPI_HandleTypeDef *hspi, I2C_HandleTypeDef *hi2c)
 {
-    float gyro_x = IMU_GetGyroY(hspi);
+    float gyro_y = IMU_GetGyroY(hspi);
     float acc_x  = IMU_GetAccAngleX(hi2c);
 
     // Complementary filter: favour gyro short-term, acc long-term
-    tilt_angle = CF_ALPHA * (tilt_angle + gyro_x * DT) + (1.0f - CF_ALPHA) * acc_x;
-    struct imu_output output = { tilt_angle, gyro_x, acc_x };
+    tilt_angle = CF_ALPHA * (tilt_angle + gyro_y * DT) + (1.0f - CF_ALPHA) * acc_x;
+    struct imu_output output = { tilt_angle, gyro_y, acc_x };
     return output;
 }
 

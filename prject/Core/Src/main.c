@@ -38,12 +38,19 @@
 /* USER CODE BEGIN PD */
 #define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
 #define BALANCE_SETPOINT_DEG      0.0f
-#define BALANCE_PID_KP            10.0f  //15.0f working values
-#define BALANCE_PID_KI            0.3f  //0.3f working values
-#define BALANCE_PID_KD            0.4f  //0.7f working values
-#define BALANCE_CMD_LIMIT_PERCENT  100.0f
+#define BALANCE_PID_KP            7.00f  //15.0f working values
+#define BALANCE_PID_KI            0.00f  //0.3f working values
+#define BALANCE_PID_KD            0.0f  //0.7f working values
+#define BALANCE_CMD_LIMIT_PERCENT  98.0f
 #define BALANCE_FALL_LIMIT_DEG     45.0f
 #define MOTOR_DEADBAND_PERCENT     2.0f
+
+// Direction-specific drive gains (tune these to handle asymmetry).
+// Positive command: IN1=1, IN2=0. Negative command: IN1=0, IN2=1.
+#define LEFT_CMD_GAIN_POS_DIR      0.98f
+#define RIGHT_CMD_GAIN_POS_DIR     0.98f
+#define LEFT_CMD_GAIN_NEG_DIR      1.0f
+#define RIGHT_CMD_GAIN_NEG_DIR     1.0f
 
 /* USER CODE END PD */
 
@@ -114,8 +121,22 @@ static float ClampFloat(float value, float min_value, float max_value)
   return value;
 }
 
+static float ApplyDirectionalGain(float command_percent,
+                                  float positive_gain,
+                                  float negative_gain)
+{
+  if (command_percent >= 0.0f)
+  {
+    return command_percent * positive_gain;
+  }
+  return command_percent * negative_gain;
+}
+
 static void Motor_Left_ApplyCommand(float command_percent)
 {
+  command_percent = ApplyDirectionalGain(command_percent,
+                                         LEFT_CMD_GAIN_POS_DIR,
+                                         LEFT_CMD_GAIN_NEG_DIR);
   command_percent = ClampFloat(command_percent, -100.0f, 100.0f);
 
   if (fabsf(command_percent) < MOTOR_DEADBAND_PERCENT)
@@ -144,6 +165,9 @@ static void Motor_Left_ApplyCommand(float command_percent)
 
 static void Motor_Right_ApplyCommand(float command_percent)
 {
+  command_percent = ApplyDirectionalGain(command_percent,
+                                         RIGHT_CMD_GAIN_POS_DIR,
+                                         RIGHT_CMD_GAIN_NEG_DIR);
   command_percent = ClampFloat(command_percent, -100.0f, 100.0f);
 
   if (fabsf(command_percent) < MOTOR_DEADBAND_PERCENT)
@@ -300,11 +324,22 @@ int main(void)
       }
       else
       {
+        telemetry_counter++;
+      if (telemetry_counter >= TELEMETRY_DIVIDER)
+      {
+        telemetry_counter = 0;
+        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f encL=%d encR=%d\r\n",
+           output.tilt_angle,
+           output.gyro_x,
+           output.acc_x,
+           left_encoder_delta,
+           right_encoder_delta);
+      }
         float balance_command = PID_Update(&balance_pid,
                                            BALANCE_SETPOINT_DEG,
                                            output.tilt_angle,
                                            DT);
-
+          
         Motor_Left_ApplyCommand(-balance_command);
         Motor_Right_ApplyCommand(-balance_command);
       }
