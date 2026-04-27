@@ -36,14 +36,27 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
+#define TELEMETRY_DIVIDER  10U   // 100 Hz / 2 = 50 Hz UART output
 #define BALANCE_SETPOINT_DEG      0.0f
-#define BALANCE_PID_KP            7.00f  //15.0f working values
+#define BALANCE_PID_KP            10.00f  //15.0f working values
 #define BALANCE_PID_KI            0.00f  //0.3f working values
 #define BALANCE_PID_KD            0.0f  //0.7f working values
 #define BALANCE_CMD_LIMIT_PERCENT  98.0f
 #define BALANCE_FALL_LIMIT_DEG     45.0f
 #define MOTOR_DEADBAND_PERCENT     2.0f
+
+// Outer speed loop (encoder based) to remove steady forward/backward creep.
+// Output is an angle-setpoint correction in degrees for the inner balance loop.
+#define SPEED_SETPOINT_TICKS       0.0f
+#define SPEED_FEEDBACK_SIGN        2.0f
+#define SPEED_PID_KP              1.0f
+#define SPEED_PID_KI               0.0f
+#define SPEED_PID_KD               0.00f
+#define SPEED_PID_LIMIT_DEG        5.0f
+#define SPEED_PID_I_LIMIT_DEG      3.0f
+#define SPEED_PID_DIVIDER          5U
+#define SPEED_FILTER_ALPHA         0.20f
+#define UART_TX_TIMEOUT_MS         5U
 
 // Direction-specific drive gains (tune these to handle asymmetry).
 // Positive command: IN1=1, IN2=0. Negative command: IN1=0, IN2=1.
@@ -76,13 +89,17 @@ PCD_HandleTypeDef hpcd_USB_FS;
 /* USER CODE BEGIN PV */
 struct imu_output output;
 PID_Controller balance_pid;
+PID_Controller speed_pid;
 volatile uint8_t imu_ready = 0;
 volatile uint8_t imu_tick = 0;
 static uint8_t telemetry_counter = 0;
+static uint8_t speed_pid_counter = 0;
 static int16_t right_encoder_delta = 0;
 static int16_t left_encoder_delta = 0;
 static uint16_t right_encoder_prev = 0;
 static uint16_t left_encoder_prev = 0;
+static float speed_feedback_ticks = 0.0f;
+static float speed_setpoint_correction_deg = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -223,7 +240,11 @@ void myPrintf (const char *fmt , ...){
       va_start (args, fmt);
       int len = vsnprintf (buffer, sizeof(buffer), fmt, args);
       va_end (args);
-      HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+  if (len > 0)
+  {
+    uint16_t tx_len = (uint16_t)((len < (int)sizeof(buffer)) ? len : (int)(sizeof(buffer) - 1));
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, tx_len, UART_TX_TIMEOUT_MS);
+  }
   }
 
 static void Encoder_RuntimeInit(void)
@@ -296,6 +317,14 @@ int main(void)
            BALANCE_CMD_LIMIT_PERCENT);
   PID_SetIntegralLimits(&balance_pid, -20.0f, 20.0f);
 
+  PID_Init(&speed_pid,
+           SPEED_PID_KP,
+           SPEED_PID_KI,
+           SPEED_PID_KD,
+           -SPEED_PID_LIMIT_DEG,
+           SPEED_PID_LIMIT_DEG);
+  PID_SetIntegralLimits(&speed_pid, -SPEED_PID_I_LIMIT_DEG, SPEED_PID_I_LIMIT_DEG);
+
   HAL_TIM_PWM_Start(&htim15, LEFT_PWM_CHANNEL);
   HAL_TIM_PWM_Start(&htim15, RIGHT_PWM_CHANNEL);
   Robot_Stop_All();
@@ -316,11 +345,25 @@ int main(void)
     {
       imu_tick = 0;
       Encoder_UpdateDeltas();
+      float speed_raw_ticks = 0.5f * ((float)left_encoder_delta + (float)right_encoder_delta);
+      speed_feedback_ticks += SPEED_FILTER_ALPHA * (speed_raw_ticks - speed_feedback_ticks);
       output = IMU_UpdateAngle(&hspi1, &hi2c1);
+
+      speed_pid_counter++;
+      if (speed_pid_counter >= SPEED_PID_DIVIDER)
+      {
+        speed_pid_counter = 0;
+        speed_setpoint_correction_deg = PID_Update(&speed_pid,
+                                                   SPEED_SETPOINT_TICKS,
+                                                   SPEED_FEEDBACK_SIGN * speed_feedback_ticks,
+                                                   DT * (float)SPEED_PID_DIVIDER);
+      }
 
       if (fabsf(output.tilt_angle) > BALANCE_FALL_LIMIT_DEG)
       {
         Robot_Stop_All();
+        PID_Reset(&speed_pid);
+        speed_setpoint_correction_deg = 0.0f;
       }
       else
       {
@@ -328,7 +371,7 @@ int main(void)
       if (telemetry_counter >= TELEMETRY_DIVIDER)
       {
         telemetry_counter = 0;
-        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f encL=%d encR=%d\r\n",
+        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f encL=%d encR=%d \r\n",
            output.tilt_angle,
            output.gyro_x,
            output.acc_x,
@@ -336,7 +379,7 @@ int main(void)
            right_encoder_delta);
       }
         float balance_command = PID_Update(&balance_pid,
-                                           BALANCE_SETPOINT_DEG,
+                                           BALANCE_SETPOINT_DEG + speed_setpoint_correction_deg,
                                            output.tilt_angle,
                                            DT);
           
@@ -657,7 +700,7 @@ static void MX_TIM15_Init(void)
   htim15.Instance = TIM15;
   htim15.Init.Prescaler = 0;
   htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim15.Init.Period = 65535;
+  htim15.Init.Period = 10000;
   htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim15.Init.RepetitionCounter = 0;
   htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
