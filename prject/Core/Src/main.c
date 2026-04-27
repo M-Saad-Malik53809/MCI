@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdarg.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include "imu.h"
 #include "pid.h"
@@ -38,17 +39,17 @@
 /* USER CODE BEGIN PD */
 #define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
 #define BALANCE_SETPOINT_DEG      0.0f
-#define BALANCE_PID_KP            7.00f  //15.0f working values
-#define BALANCE_PID_KI            0.00f  //0.3f working values
-#define BALANCE_PID_KD            0.0f  //0.7f working values
-#define BALANCE_CMD_LIMIT_PERCENT  98.0f
+#define BALANCE_PID_KP            10.05f  
+#define BALANCE_PID_KI            0.08f  
+#define BALANCE_PID_KD            0.205f
+#define BALANCE_CMD_LIMIT_PERCENT  100.0f
 #define BALANCE_FALL_LIMIT_DEG     45.0f
-#define MOTOR_DEADBAND_PERCENT     2.0f
+#define MOTOR_DEADBAND_PERCENT     0.0f
 
 // Direction-specific drive gains (tune these to handle asymmetry).
 // Positive command: IN1=1, IN2=0. Negative command: IN1=0, IN2=1.
-#define LEFT_CMD_GAIN_POS_DIR      0.98f
-#define RIGHT_CMD_GAIN_POS_DIR     0.98f
+#define LEFT_CMD_GAIN_POS_DIR      1.0f
+#define RIGHT_CMD_GAIN_POS_DIR     1.0f
 #define LEFT_CMD_GAIN_NEG_DIR      1.0f
 #define RIGHT_CMD_GAIN_NEG_DIR     1.0f
 
@@ -99,8 +100,8 @@ static void MX_TIM15_Init(void);
 /* USER CODE BEGIN PFP */
 static void Encoder_RuntimeInit(void);
 static void Encoder_UpdateDeltas(void);
-static void Motor_Left_ApplyCommand(float command_percent);
-static void Motor_Right_ApplyCommand(float command_percent);
+static uint32_t Motor_Left_ApplyCommand(float command_percent);
+static uint32_t Motor_Right_ApplyCommand(float command_percent);
 static void Robot_Stop_All(void);
 
 /* USER CODE END PFP */
@@ -132,7 +133,7 @@ static float ApplyDirectionalGain(float command_percent,
   return command_percent * negative_gain;
 }
 
-static void Motor_Left_ApplyCommand(float command_percent)
+static uint32_t Motor_Left_ApplyCommand(float command_percent)
 {
   command_percent = ApplyDirectionalGain(command_percent,
                                          LEFT_CMD_GAIN_POS_DIR,
@@ -144,7 +145,7 @@ static void Motor_Left_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(LEFT_MOTOR_IN1_GPIO_Port, LEFT_MOTOR_IN1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LEFT_MOTOR_IN2_GPIO_Port, LEFT_MOTOR_IN2_Pin, GPIO_PIN_RESET);
     __HAL_TIM_SET_COMPARE(&htim15, LEFT_PWM_CHANNEL, 0U);
-    return;
+    return 0U;
   }
 
   if (command_percent > 0.0f)
@@ -158,12 +159,12 @@ static void Motor_Left_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(LEFT_MOTOR_IN2_GPIO_Port, LEFT_MOTOR_IN2_Pin, GPIO_PIN_SET);
   }
 
-  uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim15);
-  uint32_t pulse = (uint32_t)((fabsf(command_percent) * (float)period) / 100.0f);
+    uint32_t pulse = (uint32_t)(fabsf(command_percent) * 10);
   __HAL_TIM_SET_COMPARE(&htim15, LEFT_PWM_CHANNEL, pulse);
+  return pulse;
 }
 
-static void Motor_Right_ApplyCommand(float command_percent)
+static uint32_t Motor_Right_ApplyCommand(float command_percent)
 {
   command_percent = ApplyDirectionalGain(command_percent,
                                          RIGHT_CMD_GAIN_POS_DIR,
@@ -175,7 +176,7 @@ static void Motor_Right_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(RIGHT_MOTOR_IN1_GPIO_Port, RIGHT_MOTOR_IN1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(RIGHT_MOTOR_IN2_GPIO_Port, RIGHT_MOTOR_IN2_Pin, GPIO_PIN_RESET);
     __HAL_TIM_SET_COMPARE(&htim15, RIGHT_PWM_CHANNEL, 0U);
-    return;
+    return 0U;
   }
 
   if (command_percent > 0.0f)
@@ -189,9 +190,9 @@ static void Motor_Right_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(RIGHT_MOTOR_IN2_GPIO_Port, RIGHT_MOTOR_IN2_Pin, GPIO_PIN_SET);
   }
 
-  uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim15);
-  uint32_t pulse = (uint32_t)((fabsf(command_percent) * (float)period) / 100.0f);
+  uint32_t pulse = (uint32_t)((fabsf(command_percent) * 10));
   __HAL_TIM_SET_COMPARE(&htim15, RIGHT_PWM_CHANNEL, pulse);
+  return pulse;
 }
 
 static void Robot_Stop_All(void)
@@ -324,24 +325,25 @@ int main(void)
       }
       else
       {
-        telemetry_counter++;
-      if (telemetry_counter >= TELEMETRY_DIVIDER)
-      {
-        telemetry_counter = 0;
-        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f encL=%d encR=%d\r\n",
-           output.tilt_angle,
-           output.gyro_x,
-           output.acc_x,
-           left_encoder_delta,
-           right_encoder_delta);
-      }
         float balance_command = PID_Update(&balance_pid,
                                            BALANCE_SETPOINT_DEG,
                                            output.tilt_angle,
                                            DT);
           
-        Motor_Left_ApplyCommand(-balance_command);
-        Motor_Right_ApplyCommand(-balance_command);
+        uint32_t left_pulse = Motor_Left_ApplyCommand(-balance_command);
+        uint32_t right_pulse = Motor_Right_ApplyCommand(-balance_command);
+        telemetry_counter++;
+      if (telemetry_counter >= TELEMETRY_DIVIDER)
+      {
+        telemetry_counter = 0;
+        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f, left_pulse=%lu, right_pulse=%lu\r\n",
+           output.tilt_angle,
+           output.gyro_x,
+           output.acc_x,
+           (unsigned long)left_pulse,
+           (unsigned long)right_pulse);
+      }
+        
       }
 
      
@@ -655,9 +657,9 @@ static void MX_TIM15_Init(void)
 
   /* USER CODE END TIM15_Init 1 */
   htim15.Instance = TIM15;
-  htim15.Init.Prescaler = 0;
+  htim15.Init.Prescaler = 47;
   htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim15.Init.Period = 65535;
+  htim15.Init.Period = 999;
   htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim15.Init.RepetitionCounter = 0;
   htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
