@@ -229,7 +229,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       }
 
       // --- Begin control loop (was in main loop) ---
-      Encoder_UpdateDeltas();
+      // Encoder_UpdateDeltas();
       output = IMU_UpdateAngle(&hspi1, &hi2c1);
 
       if (fabsf(output.tilt_angle) > BALANCE_FALL_LIMIT_DEG)
