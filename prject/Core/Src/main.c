@@ -306,17 +306,17 @@ static void Encoder_RuntimeInit(void)
   left_encoder_prev = (uint16_t)__HAL_TIM_GET_COUNTER(&htim4);
 }
 
-static void Encoder_UpdateDeltas(void)
-{
-  uint16_t right_now = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
-  uint16_t left_now = (uint16_t)__HAL_TIM_GET_COUNTER(&htim4);
+// static void Encoder_UpdateDeltas(void)
+// {
+//   uint16_t right_now = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+//   uint16_t left_now = (uint16_t)__HAL_TIM_GET_COUNTER(&htim4);
 
-  right_encoder_delta = (int16_t)(right_now - right_encoder_prev);
-  left_encoder_delta = (int16_t)(left_now - left_encoder_prev);
+//   right_encoder_delta = (int16_t)(right_now - right_encoder_prev);
+//   left_encoder_delta = (int16_t)(left_now - left_encoder_prev);
 
-  right_encoder_prev = right_now;
-  left_encoder_prev = left_now;
-}
+//   right_encoder_prev = right_now;
+//   left_encoder_prev = left_now;
+// }
 /* USER CODE END 0 */
 
 /**

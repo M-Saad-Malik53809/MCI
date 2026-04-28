@@ -10,7 +10,6 @@
 #define GYRO_CTRL_REG1   0x20
 #define GYRO_CTRL_REG1_VAL 0b10001111  // Power on, ODR=200Hz, X/Y/Z enabled
 #define GYRO_OUT_X_L     0x28
-#define GYRO_OUT_Y_L     0x2A
 #define GYRO_SENSITIVITY 0.00875f      // dps/LSB at ±245 dps
 
 //Accelerometer (LSM303AGR via I2C)
