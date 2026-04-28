@@ -15,7 +15,8 @@ import serial, serial.tools.list_ports
 # ── Config ─────────────────────────────────────────────────────────────
 BAUD_RATE      = 115200
 SEND_RATE_HZ   = 20          # Hz — command repeat rate while key held
-IDLE_RESET_HZ  = 5           # Hz — how often '0' is sent while idle
+BRAKE_TICKS    = 6           # ticks of opposite command sent on key release
+                             # 6 ticks @ 20 Hz = 300 ms brake burst
 # ───────────────────────────────────────────────────────────────────────
 
 if sys.platform == "win32":
@@ -27,10 +28,12 @@ CYAN  = "\033[96m"; WHITE = "\033[97m"; MAG   = "\033[95m"
 ERASE = "\r\033[2K"
 
 CMD_LABEL = {
-    "FWD":  f"{GREEN}{BOLD}[ ↑  FORWARD  ]{RESET}",
-    "BWD":  f"{RED}{BOLD}[  ↓  BACK   ]{RESET}",
-    "STOP": f"{YELLOW}{BOLD}[  ■  STOP   ]{RESET}",
-    "IDLE": f"{DIM}[    idle     ]{RESET}",
+    "FWD":       f"{GREEN}{BOLD}[ ↑  FORWARD  ]{RESET}",
+    "BWD":       f"{RED}{BOLD}[  ↓  BACK   ]{RESET}",
+    "STOP":      f"{YELLOW}{BOLD}[  ■  STOP   ]{RESET}",
+    "IDLE":      f"{DIM}[    idle     ]{RESET}",
+    "BRAKE_FWD": f"{YELLOW}{BOLD}[ ⟳  BRAKING ]{RESET}",
+    "BRAKE_BWD": f"{YELLOW}{BOLD}[ ⟳  BRAKING ]{RESET}",
 }
 
 # ── Shared UART line ────────────────────────────────────────────────────
@@ -118,17 +121,20 @@ def main():
     stop = threading.Event()
     threading.Thread(target=_reader, args=(ser, stop), daemon=True).start()
 
-    interval   = 1.0 / SEND_RATE_HZ
-    last_sent  = b"0"   # track last transmitted byte
+    interval    = 1.0 / SEND_RATE_HZ
+    last_sent   = b"0"   # track last transmitted byte
+    brake_left  = 0      # remaining brake ticks
+    brake_byte  = b"0"  # byte to send during braking
+    state       = "IDLE"
 
     def send(b: bytes):
-        """Send only if needed; swallow write errors gracefully."""
+        """Transmit one byte; swallow write errors gracefully."""
         nonlocal last_sent
         try:
             ser.write(b)
             last_sent = b
         except Exception:
-            pass   # skip this tick on write error
+            pass
 
     try:
         while True:
@@ -138,20 +144,55 @@ def main():
                 send(b"0")
                 break
 
-            if keyboard.is_pressed("up") or keyboard.is_pressed("w"):
-                cmd = "FWD";  send(b"F")
-            elif keyboard.is_pressed("down") or keyboard.is_pressed("s"):
-                cmd = "BWD";  send(b"B")
-            elif keyboard.is_pressed("space"):
-                cmd = "STOP"; send(b"0")
-            else:
-                cmd = "IDLE"
-                # Send '0' only once on transition to idle;
-                # stay silent after that until a key is pressed.
-                if last_sent != b"0":
-                    send(b"0")
+            fwd = keyboard.is_pressed("up") or keyboard.is_pressed("w")
+            bwd = keyboard.is_pressed("down") or keyboard.is_pressed("s")
+            stp = keyboard.is_pressed("space")
 
-            _render(cmd)
+            if fwd:
+                # Key active — cancel any pending brake, drive forward
+                brake_left = 0
+                state = "FWD"
+                send(b"F")
+            elif bwd:
+                brake_left = 0
+                state = "BWD"
+                send(b"B")
+            elif stp:
+                brake_left = 0
+                state = "STOP"
+                send(b"0")
+            elif brake_left > 0:
+                # Mid-brake: send opposite direction burst
+                brake_left -= 1
+                send(brake_byte)
+                if brake_left == 0:
+                    # Brake finished — settle to zero
+                    send(b"0")
+                    state = "IDLE"
+            else:
+                # Truly idle
+                prev_state = state
+                state = "IDLE"
+                if prev_state == "FWD":
+                    # Released forward → kick backward to cancel lean
+                    brake_left = BRAKE_TICKS
+                    brake_byte = b"B"
+                    state = "BRAKE_FWD"
+                    send(brake_byte)
+                    brake_left -= 1
+                elif prev_state == "BWD":
+                    # Released backward → kick forward to cancel lean
+                    brake_left = BRAKE_TICKS
+                    brake_byte = b"F"
+                    state = "BRAKE_BWD"
+                    send(brake_byte)
+                    brake_left -= 1
+                else:
+                    # Already idle — send '0' once if not already sent
+                    if last_sent != b"0":
+                        send(b"0")
+
+            _render(state)
             time.sleep(interval)
 
     except KeyboardInterrupt:

@@ -40,7 +40,7 @@
 #define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
 #define BALANCE_SETPOINT_DEG      0.0f   // default upright setpoint
 #define DRIVE_SETPOINT_STEP_DEG   1.0f   // degrees shifted per F/B command
-#define DRIVE_SETPOINT_MAX_DEG    5.0f  // max lean allowed via UART command
+#define DRIVE_SETPOINT_MAX_DEG    4.0f  // max lean allowed via UART command
 #define BALANCE_PID_KP            10.05f  
 #define BALANCE_PID_KI            0.08f  
 #define BALANCE_PID_KD            0.205f
@@ -82,7 +82,6 @@ PID_Controller balance_pid;
 PID_Controller speed_pid;
 volatile uint8_t imu_ready = 0;
 static uint8_t telemetry_counter = 0;
-static uint8_t speed_pid_counter = 0;
 static int16_t right_encoder_delta = 0;
 static int16_t left_encoder_delta = 0;
 static uint16_t right_encoder_prev = 0;
@@ -367,15 +366,6 @@ int main(void)
            -BALANCE_CMD_LIMIT_PERCENT,
            BALANCE_CMD_LIMIT_PERCENT);
   PID_SetIntegralLimits(&balance_pid, -20.0f, 20.0f);
-
-  PID_Init(&speed_pid,
-           SPEED_PID_KP,
-           SPEED_PID_KI,
-           SPEED_PID_KD,
-           -SPEED_PID_LIMIT_DEG,
-           SPEED_PID_LIMIT_DEG);
-  PID_SetIntegralLimits(&speed_pid, -SPEED_PID_I_LIMIT_DEG, SPEED_PID_I_LIMIT_DEG);
-
   HAL_TIM_PWM_Start(&htim15, LEFT_PWM_CHANNEL);
   HAL_TIM_PWM_Start(&htim15, RIGHT_PWM_CHANNEL);
   Robot_Stop_All();
