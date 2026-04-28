@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdarg.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include "imu.h"
 #include "pid.h"
@@ -36,32 +37,21 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TELEMETRY_DIVIDER  10U   // 100 Hz / 2 = 50 Hz UART output
-#define BALANCE_SETPOINT_DEG      0.0f
-#define BALANCE_PID_KP            10.00f  //15.0f working values
-#define BALANCE_PID_KI            0.00f  //0.3f working values
-#define BALANCE_PID_KD            0.0f  //0.7f working values
-#define BALANCE_CMD_LIMIT_PERCENT  98.0f
+#define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
+#define BALANCE_SETPOINT_DEG      0.0f   // default upright setpoint
+#define DRIVE_SETPOINT_STEP_DEG   1.0f   // degrees shifted per F/B command
+#define DRIVE_SETPOINT_MAX_DEG    5.0f  // max lean allowed via UART command
+#define BALANCE_PID_KP            10.05f  
+#define BALANCE_PID_KI            0.08f  
+#define BALANCE_PID_KD            0.205f
+#define BALANCE_CMD_LIMIT_PERCENT  100.0f
 #define BALANCE_FALL_LIMIT_DEG     45.0f
-#define MOTOR_DEADBAND_PERCENT     2.0f
-
-// Outer speed loop (encoder based) to remove steady forward/backward creep.
-// Output is an angle-setpoint correction in degrees for the inner balance loop.
-#define SPEED_SETPOINT_TICKS       0.0f
-#define SPEED_FEEDBACK_SIGN        2.0f
-#define SPEED_PID_KP              1.0f
-#define SPEED_PID_KI               0.0f
-#define SPEED_PID_KD               0.00f
-#define SPEED_PID_LIMIT_DEG        5.0f
-#define SPEED_PID_I_LIMIT_DEG      3.0f
-#define SPEED_PID_DIVIDER          5U
-#define SPEED_FILTER_ALPHA         0.20f
-#define UART_TX_TIMEOUT_MS         5U
+#define MOTOR_DEADBAND_PERCENT     0.0f
 
 // Direction-specific drive gains (tune these to handle asymmetry).
 // Positive command: IN1=1, IN2=0. Negative command: IN1=0, IN2=1.
-#define LEFT_CMD_GAIN_POS_DIR      0.98f
-#define RIGHT_CMD_GAIN_POS_DIR     0.98f
+#define LEFT_CMD_GAIN_POS_DIR      1.0f
+#define RIGHT_CMD_GAIN_POS_DIR     1.0f
 #define LEFT_CMD_GAIN_NEG_DIR      1.0f
 #define RIGHT_CMD_GAIN_NEG_DIR     1.0f
 
@@ -91,15 +81,16 @@ struct imu_output output;
 PID_Controller balance_pid;
 PID_Controller speed_pid;
 volatile uint8_t imu_ready = 0;
-volatile uint8_t imu_tick = 0;
 static uint8_t telemetry_counter = 0;
 static uint8_t speed_pid_counter = 0;
 static int16_t right_encoder_delta = 0;
 static int16_t left_encoder_delta = 0;
 static uint16_t right_encoder_prev = 0;
 static uint16_t left_encoder_prev = 0;
-static float speed_feedback_ticks = 0.0f;
-static float speed_setpoint_correction_deg = 0.0f;
+
+/* UART2 RX: single-byte interrupt buffer and live setpoint */
+static uint8_t uart2_rx_byte = 0;
+volatile float g_balance_setpoint = BALANCE_SETPOINT_DEG;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -107,17 +98,17 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_USB_PCD_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM15_Init(void);
+static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 static void Encoder_RuntimeInit(void);
 static void Encoder_UpdateDeltas(void);
-static void Motor_Left_ApplyCommand(float command_percent);
-static void Motor_Right_ApplyCommand(float command_percent);
+static uint32_t Motor_Left_ApplyCommand(float command_percent);
+static uint32_t Motor_Right_ApplyCommand(float command_percent);
 static void Robot_Stop_All(void);
 
 /* USER CODE END PFP */
@@ -149,7 +140,7 @@ static float ApplyDirectionalGain(float command_percent,
   return command_percent * negative_gain;
 }
 
-static void Motor_Left_ApplyCommand(float command_percent)
+static uint32_t Motor_Left_ApplyCommand(float command_percent)
 {
   command_percent = ApplyDirectionalGain(command_percent,
                                          LEFT_CMD_GAIN_POS_DIR,
@@ -161,7 +152,7 @@ static void Motor_Left_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(LEFT_MOTOR_IN1_GPIO_Port, LEFT_MOTOR_IN1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LEFT_MOTOR_IN2_GPIO_Port, LEFT_MOTOR_IN2_Pin, GPIO_PIN_RESET);
     __HAL_TIM_SET_COMPARE(&htim15, LEFT_PWM_CHANNEL, 0U);
-    return;
+    return 0U;
   }
 
   if (command_percent > 0.0f)
@@ -175,12 +166,12 @@ static void Motor_Left_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(LEFT_MOTOR_IN2_GPIO_Port, LEFT_MOTOR_IN2_Pin, GPIO_PIN_SET);
   }
 
-  uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim15);
-  uint32_t pulse = (uint32_t)((fabsf(command_percent) * (float)period) / 100.0f);
+    uint32_t pulse = (uint32_t)(fabsf(command_percent) * 10);
   __HAL_TIM_SET_COMPARE(&htim15, LEFT_PWM_CHANNEL, pulse);
+  return pulse;
 }
 
-static void Motor_Right_ApplyCommand(float command_percent)
+static uint32_t Motor_Right_ApplyCommand(float command_percent)
 {
   command_percent = ApplyDirectionalGain(command_percent,
                                          RIGHT_CMD_GAIN_POS_DIR,
@@ -192,7 +183,7 @@ static void Motor_Right_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(RIGHT_MOTOR_IN1_GPIO_Port, RIGHT_MOTOR_IN1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(RIGHT_MOTOR_IN2_GPIO_Port, RIGHT_MOTOR_IN2_Pin, GPIO_PIN_RESET);
     __HAL_TIM_SET_COMPARE(&htim15, RIGHT_PWM_CHANNEL, 0U);
-    return;
+    return 0U;
   }
 
   if (command_percent > 0.0f)
@@ -206,9 +197,9 @@ static void Motor_Right_ApplyCommand(float command_percent)
     HAL_GPIO_WritePin(RIGHT_MOTOR_IN2_GPIO_Port, RIGHT_MOTOR_IN2_Pin, GPIO_PIN_SET);
   }
 
-  uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim15);
-  uint32_t pulse = (uint32_t)((fabsf(command_percent) * (float)period) / 100.0f);
+  uint32_t pulse = (uint32_t)((fabsf(command_percent) * 10));
   __HAL_TIM_SET_COMPARE(&htim15, RIGHT_PWM_CHANNEL, pulse);
+  return pulse;
 }
 
 static void Robot_Stop_All(void)
@@ -220,32 +211,92 @@ static void Robot_Stop_All(void)
   __HAL_TIM_SET_COMPARE(&htim15, LEFT_PWM_CHANNEL, 0U);
   __HAL_TIM_SET_COMPARE(&htim15, RIGHT_PWM_CHANNEL, 0U);
 }
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == TIM2)
-    {
-    if (imu_ready == 0)
-    {
-      return;
-    }
-
-    // Keep ISR short: do sensor reads and filter update in main loop.
-    imu_tick = 1;
-    }
-}
 void myPrintf (const char *fmt , ...){
       char buffer[256];
       va_list args;
       va_start (args, fmt);
       int len = vsnprintf (buffer, sizeof(buffer), fmt, args);
       va_end (args);
-  if (len > 0)
+      HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2)
+    {
+      if (imu_ready == 0)
+      {
+        return;
+      }
+
+      // --- Begin control loop (was in main loop) ---
+      Encoder_UpdateDeltas();
+      output = IMU_UpdateAngle(&hspi1, &hi2c1);
+
+      if (fabsf(output.tilt_angle) > BALANCE_FALL_LIMIT_DEG)
+      {
+        Robot_Stop_All();
+      }
+      else
+      {
+        float balance_command = PID_Update(&balance_pid,
+                           g_balance_setpoint,
+                           output.tilt_angle,
+                           DT);
+
+        Motor_Left_ApplyCommand(-balance_command);
+        Motor_Right_ApplyCommand(-balance_command);
+        telemetry_counter++;
+        if (telemetry_counter >= TELEMETRY_DIVIDER)
+        {
+          telemetry_counter = 0;
+          myPrintf("tilt=%.2f gyro=%.2f acc=%.2f, setpoint=%.2f\r\n",
+             output.tilt_angle,
+             output.gyro_x,
+             output.acc_x,
+             g_balance_setpoint);
+        }
+      }
+      // --- End control loop ---
+    }
+}
+
+/**
+  * @brief UART2 RX complete callback — handles one received byte.
+  *        Commands:
+  *          'F' = lean forward  (setpoint += DRIVE_SETPOINT_STEP_DEG)
+  *          'B' = lean backward (setpoint -= DRIVE_SETPOINT_STEP_DEG)
+  *          '0' = stop / reset setpoint to 0
+  * Re-arms the single-byte interrupt receive automatically.
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2)
   {
-    uint16_t tx_len = (uint16_t)((len < (int)sizeof(buffer)) ? len : (int)(sizeof(buffer) - 1));
-    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, tx_len, UART_TX_TIMEOUT_MS);
+    switch (uart2_rx_byte)
+    {
+      case 'F':
+        g_balance_setpoint += DRIVE_SETPOINT_STEP_DEG;
+        if (g_balance_setpoint > DRIVE_SETPOINT_MAX_DEG)
+          g_balance_setpoint = DRIVE_SETPOINT_MAX_DEG;
+        break;
+
+      case 'B':
+        g_balance_setpoint -= DRIVE_SETPOINT_STEP_DEG;
+        if (g_balance_setpoint < -DRIVE_SETPOINT_MAX_DEG)
+          g_balance_setpoint = -DRIVE_SETPOINT_MAX_DEG;
+        break;
+
+      case '0':
+        g_balance_setpoint = 0.0f;
+        break;
+    }
+    /* Re-arm the interrupt receive for the next byte */
+    HAL_UART_Receive_IT(&huart2, &uart2_rx_byte, 1);
   }
-  }
+}
+
+
 
 static void Encoder_RuntimeInit(void)
 {
@@ -300,12 +351,12 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
-  MX_USB_PCD_Init();
   MX_TIM2_Init();
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_TIM15_Init();
+  MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
   Encoder_RuntimeInit();
   IMU_Init(&hspi1, &hi2c1);
@@ -335,60 +386,16 @@ int main(void)
   myPrintf("Sampling complete. Streaming angle values.\r\n");
 
   HAL_TIM_Base_Start_IT(&htim2);        // start 100 Hz timer interrupt
+
+  /* Start UART2 RX interrupt — receives one byte at a time */
+  HAL_UART_Receive_IT(&huart2, &uart2_rx_byte, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  { 
-    if ((imu_ready == 1) && (imu_tick == 1))
-    {
-      imu_tick = 0;
-      Encoder_UpdateDeltas();
-      float speed_raw_ticks = 0.5f * ((float)left_encoder_delta + (float)right_encoder_delta);
-      speed_feedback_ticks += SPEED_FILTER_ALPHA * (speed_raw_ticks - speed_feedback_ticks);
-      output = IMU_UpdateAngle(&hspi1, &hi2c1);
-
-      speed_pid_counter++;
-      if (speed_pid_counter >= SPEED_PID_DIVIDER)
-      {
-        speed_pid_counter = 0;
-        speed_setpoint_correction_deg = PID_Update(&speed_pid,
-                                                   SPEED_SETPOINT_TICKS,
-                                                   SPEED_FEEDBACK_SIGN * speed_feedback_ticks,
-                                                   DT * (float)SPEED_PID_DIVIDER);
-      }
-
-      if (fabsf(output.tilt_angle) > BALANCE_FALL_LIMIT_DEG)
-      {
-        Robot_Stop_All();
-        PID_Reset(&speed_pid);
-        speed_setpoint_correction_deg = 0.0f;
-      }
-      else
-      {
-        telemetry_counter++;
-      if (telemetry_counter >= TELEMETRY_DIVIDER)
-      {
-        telemetry_counter = 0;
-        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f encL=%d encR=%d \r\n",
-           output.tilt_angle,
-           output.gyro_x,
-           output.acc_x,
-           left_encoder_delta,
-           right_encoder_delta);
-      }
-        float balance_command = PID_Update(&balance_pid,
-                                           BALANCE_SETPOINT_DEG + speed_setpoint_correction_deg,
-                                           output.tilt_angle,
-                                           DT);
-          
-        Motor_Left_ApplyCommand(-balance_command);
-        Motor_Right_ApplyCommand(-balance_command);
-      }
-
-     
-    }
+  {
+    // Main loop is now empty; all control logic is in TIM2 ISR
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -698,9 +705,9 @@ static void MX_TIM15_Init(void)
 
   /* USER CODE END TIM15_Init 1 */
   htim15.Instance = TIM15;
-  htim15.Init.Prescaler = 0;
+  htim15.Init.Prescaler = 47;
   htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim15.Init.Period = 10000;
+  htim15.Init.Period = 999;
   htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim15.Init.RepetitionCounter = 0;
   htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
