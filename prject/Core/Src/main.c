@@ -38,7 +38,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define TELEMETRY_DIVIDER  2U   // 100 Hz / 2 = 50 Hz UART output
-#define BALANCE_SETPOINT_DEG      0.0f
+#define BALANCE_SETPOINT_DEG      0.0f   // default upright setpoint
+#define DRIVE_SETPOINT_STEP_DEG   1.0f   // degrees shifted per F/B command
+#define DRIVE_SETPOINT_MAX_DEG    5.0f  // max lean allowed via UART command
 #define BALANCE_PID_KP            10.05f  
 #define BALANCE_PID_KI            0.08f  
 #define BALANCE_PID_KD            0.205f
@@ -78,12 +80,15 @@ PCD_HandleTypeDef hpcd_USB_FS;
 struct imu_output output;
 PID_Controller balance_pid;
 volatile uint8_t imu_ready = 0;
-volatile uint8_t imu_tick = 0;
 static uint8_t telemetry_counter = 0;
 static int16_t right_encoder_delta = 0;
 static int16_t left_encoder_delta = 0;
 static uint16_t right_encoder_prev = 0;
 static uint16_t left_encoder_prev = 0;
+
+/* UART2 RX: single-byte interrupt buffer and live setpoint */
+static uint8_t uart2_rx_byte = 0;
+volatile float g_balance_setpoint = BALANCE_SETPOINT_DEG;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -91,12 +96,12 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_USB_PCD_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM15_Init(void);
+static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 static void Encoder_RuntimeInit(void);
 static void Encoder_UpdateDeltas(void);
@@ -204,20 +209,6 @@ static void Robot_Stop_All(void)
   __HAL_TIM_SET_COMPARE(&htim15, LEFT_PWM_CHANNEL, 0U);
   __HAL_TIM_SET_COMPARE(&htim15, RIGHT_PWM_CHANNEL, 0U);
 }
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == TIM2)
-    {
-    if (imu_ready == 0)
-    {
-      return;
-    }
-
-    // Keep ISR short: do sensor reads and filter update in main loop.
-    imu_tick = 1;
-    }
-}
 void myPrintf (const char *fmt , ...){
       char buffer[256];
       va_list args;
@@ -225,7 +216,84 @@ void myPrintf (const char *fmt , ...){
       int len = vsnprintf (buffer, sizeof(buffer), fmt, args);
       va_end (args);
       HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2)
+    {
+      if (imu_ready == 0)
+      {
+        return;
+      }
+
+      // --- Begin control loop (was in main loop) ---
+      Encoder_UpdateDeltas();
+      output = IMU_UpdateAngle(&hspi1, &hi2c1);
+
+      if (fabsf(output.tilt_angle) > BALANCE_FALL_LIMIT_DEG)
+      {
+        Robot_Stop_All();
+      }
+      else
+      {
+        float balance_command = PID_Update(&balance_pid,
+                           g_balance_setpoint,
+                           output.tilt_angle,
+                           DT);
+
+        Motor_Left_ApplyCommand(-balance_command);
+        Motor_Right_ApplyCommand(-balance_command);
+        telemetry_counter++;
+        if (telemetry_counter >= TELEMETRY_DIVIDER)
+        {
+          telemetry_counter = 0;
+          myPrintf("tilt=%.2f gyro=%.2f acc=%.2f, setpoint=%.2f\r\n",
+             output.tilt_angle,
+             output.gyro_x,
+             output.acc_x,
+             g_balance_setpoint);
+        }
+      }
+      // --- End control loop ---
+    }
+}
+
+/**
+  * @brief UART2 RX complete callback — handles one received byte.
+  *        Commands:
+  *          'F' = lean forward  (setpoint += DRIVE_SETPOINT_STEP_DEG)
+  *          'B' = lean backward (setpoint -= DRIVE_SETPOINT_STEP_DEG)
+  *          '0' = stop / reset setpoint to 0
+  * Re-arms the single-byte interrupt receive automatically.
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2)
+  {
+    switch (uart2_rx_byte)
+    {
+      case 'F':
+        g_balance_setpoint += DRIVE_SETPOINT_STEP_DEG;
+        if (g_balance_setpoint > DRIVE_SETPOINT_MAX_DEG)
+          g_balance_setpoint = DRIVE_SETPOINT_MAX_DEG;
+        break;
+
+      case 'B':
+        g_balance_setpoint -= DRIVE_SETPOINT_STEP_DEG;
+        if (g_balance_setpoint < -DRIVE_SETPOINT_MAX_DEG)
+          g_balance_setpoint = -DRIVE_SETPOINT_MAX_DEG;
+        break;
+
+      case '0':
+        g_balance_setpoint = 0.0f;
+        break;
+    }
+    /* Re-arm the interrupt receive for the next byte */
+    HAL_UART_Receive_IT(&huart2, &uart2_rx_byte, 1);
   }
+}
+
 
 static void Encoder_RuntimeInit(void)
 {
@@ -280,12 +348,12 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
-  MX_USB_PCD_Init();
   MX_TIM2_Init();
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_TIM15_Init();
+  MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
   Encoder_RuntimeInit();
   IMU_Init(&hspi1, &hi2c1);
@@ -307,47 +375,16 @@ int main(void)
   myPrintf("Sampling complete. Streaming angle values.\r\n");
 
   HAL_TIM_Base_Start_IT(&htim2);        // start 100 Hz timer interrupt
+
+  /* Start UART2 RX interrupt — receives one byte at a time */
+  HAL_UART_Receive_IT(&huart2, &uart2_rx_byte, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  { 
-    if ((imu_ready == 1) && (imu_tick == 1))
-    {
-      imu_tick = 0;
-      Encoder_UpdateDeltas();
-      output = IMU_UpdateAngle(&hspi1, &hi2c1);
-
-      if (fabsf(output.tilt_angle) > BALANCE_FALL_LIMIT_DEG)
-      {
-        Robot_Stop_All();
-      }
-      else
-      {
-        float balance_command = PID_Update(&balance_pid,
-                                           BALANCE_SETPOINT_DEG,
-                                           output.tilt_angle,
-                                           DT);
-          
-        uint32_t left_pulse = Motor_Left_ApplyCommand(-balance_command);
-        uint32_t right_pulse = Motor_Right_ApplyCommand(-balance_command);
-        telemetry_counter++;
-      if (telemetry_counter >= TELEMETRY_DIVIDER)
-      {
-        telemetry_counter = 0;
-        myPrintf("tilt=%.2f gyro=%.2f acc=%.2f, left_pulse=%lu, right_pulse=%lu\r\n",
-           output.tilt_angle,
-           output.gyro_x,
-           output.acc_x,
-           (unsigned long)left_pulse,
-           (unsigned long)right_pulse);
-      }
-        
-      }
-
-     
-    }
+  {
+    // Main loop is now empty; all control logic is in TIM2 ISR
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
